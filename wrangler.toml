@@ -1,0 +1,14 @@
+name = "trivia-bot"
+main = "src/index.ts"
+compatibility_date = "2025-05-05"
+workers_dev = true
+
+[triggers]
+crons = ["0 * * * *"]
+
+[durable_objects]
+bindings = [{ name = "STORE", class_name = "Store" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Store"]
