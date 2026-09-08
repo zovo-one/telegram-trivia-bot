@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { APP_HTML, buildShareText, initDataErrorMessage, validateInitData, initDataStartParam, isExcludedAppUser } from "../src/webapp.ts";
-import { BOT as BOT_PLACEHOLDER } from "../src/botname.ts";
+import { BOT } from "../src/botname.ts";
+// Fleet allowlist: this bot's own (now-live) username, the other LIVE bots' real usernames,
+// and the hub bot. A guessed-looking t.me username not in this list is always somebody
+// else's live bot (see REVIEW-WEBAPP.md) — the Mini App must never link to one.
 const LIVE_USERNAMES = ["WhisperLockBot", "NudgeRemindBot", "AnonInboxProBot", "SplitTabsBot", "HabitStreakProBot", "EventRSVPProBot", "AnonSayProBot", "IcebreakerDailyBot", "SantaDrawProBot"];
 const enc = new TextEncoder();
 async function sign(token: string, fields: Record<string, string>): Promise<string> {
@@ -44,12 +47,11 @@ test("buildShareText: pitch + attributable deep link, under 300 chars", () => {
 test("APP_HTML: no tg:// links, no stranger usernames (P0 fleet audit, REVIEW-WEBAPP.md)", () => {
   assert.ok(!APP_HTML.includes("tg://"), "APP_HTML must not contain a tg:// link");
   const usernames = APP_HTML.match(/https:\/\/t\.me\/([A-Za-z0-9_]+)/g) || [];
-  const allowed = new Set([...LIVE_USERNAMES, "TinyTelegramToolsBot"]);
+  const allowed = new Set([BOT, ...LIVE_USERNAMES, "TinyTelegramToolsBot"]);
   for (const u of usernames) {
     const name = u.replace("https://t.me/", "");
     assert.ok(allowed.has(name), `unexpected t.me link in APP_HTML: ${u}`);
   }
-  assert.ok(!APP_HTML.includes(BOT_PLACEHOLDER), `APP_HTML must not hardcode the placeholder bot name ${BOT_PLACEHOLDER}`);
 });
 
 test("initDataErrorMessage: no initData vs invalid/expired get distinct copy, both name a way back into the bot", () => {

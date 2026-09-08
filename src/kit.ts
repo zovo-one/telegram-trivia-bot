@@ -1,9 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { Bot, Context, InlineKeyboard, webhookCallback } from "grammy";
-export { FORGET_TABLES, GUEST_SOURCE, INLINE_CHAT_TYPE, SOURCE_PAYLOAD_RE, adminKeyOk, buildGuestResult, buildInlineResult, cheapPitch, guestAddUrl, guestButtons, guestOpenUrl, guestText, inlineResultId, isGuestGroup, notTestUser, plain, proCallbackMustRedirect, queryText, resolveBotUsername, wireGuest, wireInline } from "./guest.ts";
-export type { GuestButton, GuestOpts, GuestRate, GuestRecord, GuestRecordResult, GuestReply, InlineOpts } from "./guest.ts";
-import { FORGET_TABLES, GUEST_FLOOD_MAX, GUEST_ROW_CAP, adminKeyOk, guestDay, guestFlooded, guestOverflow, guestRateOk, guestWindow, isQaGuest, nextGuestRate, notTestUser, proCallbackMustRedirect } from "./guest.ts";
-import type { GuestRate, GuestRecordResult } from "./guest.ts";
+export { FORGET_TABLES, GUEST_SOURCE, INLINE_CHAT_TYPE, SOURCE_PAYLOAD_RE, adminKeyOk, buildGuestResult, buildInlineResult, cheapPitch, clampUsersLimit, clampUsersOffset, guestAddUrl, guestButtons, guestOpenUrl, guestText, inlineResultId, isGuestGroup, isOwnerUserId, isQaUserId, notTestUser, plain, proCallbackMustRedirect, queryText, resolveBotUsername, shapeAdminUsers, wireGuest, wireInline } from "./guest.ts";
+export type { AdminUserRow, FunnelStepRow, GuestButton, GuestOpts, GuestRate, GuestRecord, GuestRecordResult, GuestReply, InlineOpts, RawAdminUserRow } from "./guest.ts";
+import { FORGET_TABLES, GUEST_FLOOD_MAX, GUEST_ROW_CAP, adminKeyOk, clampUsersLimit, clampUsersOffset, guestDay, guestFlooded, guestOverflow, guestRateOk, guestWindow, isQaGuest, nextGuestRate, notTestUser, proCallbackMustRedirect, shapeAdminUsers } from "./guest.ts";
+import type { AdminUserRow, FunnelStepRow, GuestRate, GuestRecordResult, RawAdminUserRow } from "./guest.ts";
 
 export const PRO_STARS = 150;
 const DAY = 86_400;
@@ -76,6 +76,24 @@ export class BaseStore extends DurableObject {
   }
   async getUser(id: number): Promise<UserRow | null> {
     return this.one<UserRow>("SELECT id, username, name, pro, tz_min FROM users WHERE id = ?1", id);
+  }
+  /** Admin: user-provenance rows for `GET /admin/users` — ids and timestamps only, never a
+   * username or name (ADMIN-ROUTES.md's privacy rule), so no `SELECT *` here even though
+   * `users` stores both. `limit`/`offset` are trusted pre-clamped by the caller (makeFetch's
+   * route below, via clampUsersLimit/clampUsersOffset) — this method does not re-clamp, so it
+   * must never be called directly from an unclamped input. `lang` is always null here: the
+   * base `users` table this class creates carries no lang column (several bots keep one in
+   * their own `prefs` table instead, out of BaseStore's reach — see shapeAdminUsers' doc
+   * comment in guest.ts). Ordered newest-arrival-first so a fresh burst of test rows sorts
+   * to the top. */
+  async listUsers(limit: number, offset: number): Promise<AdminUserRow[]> {
+    const rows = this.all<RawAdminUserRow>(
+      "SELECT id, first_seen, last_seen FROM users ORDER BY first_seen DESC LIMIT ?1 OFFSET ?2", limit, offset);
+    if (rows.length === 0) return [];
+    const placeholders = rows.map((_, i) => `?${i + 1}`).join(",");
+    const funnelRows = this.all<FunnelStepRow>(
+      `SELECT user_id, step, ts FROM funnel WHERE user_id IN (${placeholders})`, ...rows.map((r) => r.id));
+    return shapeAdminUsers(rows, funnelRows, this.ownerId);
   }
   /** Upsert: a payer may have no users row yet (deep-link invoice, restored chat). */
   async setPro(id: number, charge: string): Promise<void> {
@@ -296,6 +314,19 @@ export function makeFetch<E extends Env>(build: (env: E) => Bot, stats: (env: E)
       const stub = store.get(store.idFromName("main"));
       const n = await stub.forgetUser(body.id);
       return Response.json({ ok: true, tables: n });
+    }
+    // The user-provenance instrument: admin-only, same key gate as /admin/forget, so proving
+    // the fleet's "real users" count is made of distinct humans never needs a raw DB dump.
+    // Ids and timestamps only — see ADMIN-ROUTES.md's privacy rule. CORS deliberately off
+    // (unlike /stats): this is an operator tool, not something a browser page ever calls.
+    if (url.pathname === "/admin/users" && req.method === "GET") {
+      if (!adminKeyOk(req.headers.get("x-admin-key"), env.WEBHOOK_SECRET)) return new Response("unauthorized", { status: 401 });
+      const limit = clampUsersLimit(url.searchParams.get("limit"));
+      const offset = clampUsersOffset(url.searchParams.get("offset"));
+      const store = env.STORE as unknown as { idFromName(name: string): unknown; get(id: unknown): { listUsers(limit: number, offset: number): Promise<AdminUserRow[]> } };
+      const stub = store.get(store.idFromName("main"));
+      const users = await stub.listUsers(limit, offset);
+      return Response.json({ users, limit, offset }, { headers: { "cache-control": "no-store" } });
     }
     if (req.method !== "POST" || url.pathname !== "/webhook") return new Response("not found", { status: 404 });
     const handler = webhookCallback(build(env), "cloudflare-mod", { secretToken: env.WEBHOOK_SECRET, timeoutMilliseconds: 25_000 });

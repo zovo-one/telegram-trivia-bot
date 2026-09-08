@@ -364,3 +364,86 @@ export function adminKeyOk(provided: string | null | undefined, expected: string
   for (let i = 0; i < expected.length; i++) diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
 }
+
+/* ---- GET /admin/users: the user-provenance instrument. Pure pieces only — the actual SQL
+ * read lives in BaseStore.listUsers (kit.ts, a Durable Object method) and in nudge/whisper's
+ * hand-rolled Store.listUsers. Kept here (no cloudflare:workers import) so the clamp and the
+ * row-shaping are unit-tested under plain node, same as adminKeyOk/FORGET_TABLES above. */
+
+/** Bounds on GET /admin/users: at most ADMIN_USERS_MAX_LIMIT rows a call, ADMIN_USERS_DEFAULT_LIMIT
+ * when `limit` is missing, non-numeric, or <= 0. Never trust a query-string value unclamped into
+ * a SQL LIMIT. */
+export const ADMIN_USERS_DEFAULT_LIMIT = 50;
+export const ADMIN_USERS_MAX_LIMIT = 200;
+
+/** Clamps an arbitrary (query-string) limit into (0, ADMIN_USERS_MAX_LIMIT], defaulting to
+ * ADMIN_USERS_DEFAULT_LIMIT. Pure so it's unit-tested without a Request. */
+export function clampUsersLimit(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return ADMIN_USERS_DEFAULT_LIMIT;
+  return Math.min(Math.floor(n), ADMIN_USERS_MAX_LIMIT);
+}
+
+/** Clamps an arbitrary (query-string) offset to a non-negative integer, defaulting to 0. */
+export function clampUsersOffset(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+/** True for an id in the QA fixture range (900000000-900999999) — "the known agent-test
+ * shape" every bot already treats as a test fixture (see QA_USER_MIN/MAX above). A plain
+ * per-id predicate, unlike `notTestUser` which builds a SQL fragment over a whole table. */
+export function isQaUserId(id: number): boolean {
+  return id >= QA_USER_MIN && id <= QA_USER_MAX;
+}
+
+/** True when `id` is the fleet owner's own real Telegram id (OWNER_ID secret); always false
+ * when ownerId is 0 (secret unset), same convention as isQaGuest/notTestUser. */
+export function isOwnerUserId(id: number, ownerId: number): boolean {
+  return Number.isInteger(ownerId) && ownerId > 0 && id === ownerId;
+}
+
+/** One row `GET /admin/users` returns. Deliberately narrow: ids and timestamps only — never a
+ * username or display name, even though `users` stores them, per the privacy rule in
+ * ADMIN-ROUTES.md. `lang` is `null` whenever the store has no per-user language on hand (the
+ * base `users` table never carries one; several bots keep it in their own `prefs` table
+ * instead, out of BaseStore's reach). `steps` is a compact `{step: ts}` map, the first time
+ * each funnel step was reached, straight off the `funnel` table. */
+export interface AdminUserRow {
+  id: number;
+  first_seen: number;
+  last_seen: number;
+  lang: string | null;
+  steps: Record<string, number>;
+  is_owner: boolean;
+  is_qa: boolean;
+}
+
+/** What a `users` read must supply per row before shaping — `lang` is optional because most
+ * callers' SQL has no such column to select. */
+export interface RawAdminUserRow { id: number; first_seen: number; last_seen: number; lang?: string | null; }
+/** One `funnel` row: the DO-independent shape `shapeAdminUsers` folds into each user's `steps` map. */
+export interface FunnelStepRow { user_id: number; step: string; ts: number; }
+
+/** Builds the `GET /admin/users` rows from two already-fetched, unshaped result sets: pure,
+ * so the row shape, the funnel-step folding, and the is_owner/is_qa computation are all
+ * unit-tested without a Durable Object. `funnelRows` may include steps for users outside
+ * `rows` (a caller that queried funnel more broadly) — those are simply never attached. */
+export function shapeAdminUsers(rows: RawAdminUserRow[], funnelRows: FunnelStepRow[], ownerId: number): AdminUserRow[] {
+  const steps = new Map<number, Record<string, number>>();
+  for (const f of funnelRows) {
+    let m = steps.get(f.user_id);
+    if (!m) { m = {}; steps.set(f.user_id, m); }
+    m[f.step] = f.ts;
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    first_seen: r.first_seen,
+    last_seen: r.last_seen,
+    lang: r.lang ?? null,
+    steps: steps.get(r.id) ?? {},
+    is_owner: isOwnerUserId(r.id, ownerId),
+    is_qa: isQaUserId(r.id),
+  }));
+}

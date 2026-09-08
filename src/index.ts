@@ -38,8 +38,10 @@ const chatTitle = (ctx: Context): string => (ctx.chat && "title" in ctx.chat ? c
 const tzLabel = (tzMin: number): string => (tzMin === 0 ? "UTC" : `UTC${tzMin > 0 ? "+" : ""}${(tzMin / 60).toFixed(tzMin % 60 === 0 ? 0 : 1)}`);
 const medal = (i: number): string => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`);
 
+// publicLink(), not a literal `t.me/${BOT}`: BOT is still "PLACEHOLDER" until trivia is
+// minted, and a guessed-looking t.me name is always somebody else's live bot (REVIEW-WEBAPP.md).
 const proKb = (lang: string, chatId: number): InlineKeyboard =>
-  new InlineKeyboard().url(t(lang, "btn_unlockPro", { stars: PRO_STARS }), `https://t.me/${BOT}?start=pro_${encodeChatId(chatId)}`);
+  new InlineKeyboard().url(t(lang, "btn_unlockPro", { stars: PRO_STARS }), publicLink(`pro_${encodeChatId(chatId)}`));
 
 /** One Stars invoice link for the (only) plan, with exactly the title/description/payload the
  * chat flow uses. Shared by the chat /pro flow and the Mini App's POST /api/pro-link. trivia

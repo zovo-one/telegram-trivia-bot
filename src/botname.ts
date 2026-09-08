@@ -5,7 +5,7 @@
  * one -- a guessed-looking t.me name is always somebody else's live bot (see REVIEW-WEBAPP.md).
  * Imported by both index.ts (chat share, error copy) and webapp.ts (Mini App links) so the two
  * can never disagree about which bot they belong to. */
-export const BOT = "PLACEHOLDER";
+export const BOT = "TriviaDailyProBot";
 
 /** intel/hub-apps.json direct_link for this bot's key -- the only safe public link when BOT
  * above is not live. Falls back to the hub root if this bot has no hub-apps.json entry yet. */
