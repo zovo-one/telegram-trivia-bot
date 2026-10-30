@@ -2,6 +2,12 @@
 
 **Try it:** [@TriviaDailyProBot](https://t.me/TriviaDailyProBot?start=github) · [tg.zovo.one/bots/trivia/](https://tg.zovo.one/bots/trivia/)
 
+## Football prediction league
+
+An admin posts a match in the group with `/predict Real Madrid - Barcelona 2026-11-02`. The date is optional. The bot opens a poll with three options, 1, X and 2. The poll is not anonymous, so the bot can see each pick. After the game, an admin replies to the poll with `/result 1`, `/result x` or `/result 2`. Every right pick scores 3 points, and `/table` shows the standings. `/predictions` lists the open matches.
+
+[Start with @TriviaDailyProBot](https://t.me/TriviaDailyProBot?start=github)
+
 ## What it does
 
 TriviaDailyProBot posts a daily trivia quiz poll in a Telegram group, scores answers, and keeps a weekly leaderboard and per-member streaks. `/trivia on 18:00` turns on the daily quiz at that local hour; `/trivia now` posts one immediately (against the daily cap); `/ttz` sets the group's timezone offset. The first correct answer on a poll earns 3 points, any other correct answer earns 1, and `/leaderboard` shows the week's top scorers. Free tier: 1 quiz/day, general knowledge only. Pro (150 ⭐, one-time, per group) adds up to 3 quizzes/day, all 6 categories (science, geography, history, movies, sports, general), streak badges (🔥), and an automatic monthly champion post.
